@@ -1,0 +1,14 @@
+{
+  "testplayer": {
+    "password_hash": "$2b$10$yl9NAlVpmd79zG41TE0FNewTNqXWbmniMC/D7jeGFVnmy1qCowpw6"
+  },
+  "nokros": {
+    "password_hash": "$2b$10$ARabOraMPERtUCJqT.Dwl.dS.rytYZdNJNfYjN0XFsiZjOqWf.b3i"
+  },
+  "nokros1": {
+    "password_hash": "$2b$10$ljaLnKdXBI5S3DmXL8Z0KuioC69SR1JgqstZv0S9aISOW/EtpIbY."
+  },
+  "ka0n": {
+    "password_hash": "$2b$10$PWGqj0C5E.qrwluh6nYosufYmBSQe6nFjSsUcYq1DQOKJMusBx3K."
+  }
+}
