@@ -194,7 +194,7 @@ app.post('/save', async (req, res) => {
   }
 });
 
-// ==================== ПОЛУЧЕНИЕ ДАННЫХ ====================
+// ==================== ПОЛУЧЕНИЕ ДАННЫХ ОДНОГО ИГРОКА ====================
 app.get('/load/:username', async (req, res) => {
   try {
     const { username } = req.params;
@@ -217,6 +217,266 @@ app.get('/load/:username', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: 'Failed to load game' 
+    });
+  }
+});
+
+// ==================== ПОЛУЧЕНИЕ ВСЕХ ИГРОКОВ И СОХРАНЕНИЙ ====================
+app.get('/api/players', async (req, res) => {
+  try {
+    // Получаем все сохранения игроков с информацией о пользователях
+    const allSaves = await Save.find({}, {
+      username: 1,
+      total_score: 1,
+      current_skin: 1,
+      players_skins: 1,
+      updated_at: 1
+    }).lean();
+    
+    // Получаем информацию о пользователях
+    const allUsers = await User.find({}, {
+      username: 1,
+      created_at: 1
+    }).lean();
+    
+    // Объединяем данные пользователей с их сохранениями
+    const playersData = allSaves.map(save => {
+      const user = allUsers.find(u => u.username === save.username);
+      return {
+        username: save.username,
+        total_score: save.total_score,
+        current_skin: save.current_skin,
+        players_skins: save.players_skins,
+        account_created_at: user?.created_at || null,
+        last_updated: save.updated_at
+      };
+    });
+    
+    console.log(`📊 Retrieved ${playersData.length} players with save data`);
+    res.json({
+      success: true,
+      count: playersData.length,
+      players: playersData
+    });
+  } catch (error) {
+    console.error('❌ Get all players error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to retrieve players' 
+    });
+  }
+});
+
+// ==================== ПОЛУЧЕНИЕ ДАННЫХ КОНКРЕТНОГО ИГРОКА ====================
+app.get('/api/player/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    
+    const gameData = await Save.findOne({ username }, {
+      username: 1,
+      total_score: 1,
+      current_skin: 1,
+      players_skins: 1,
+      updated_at: 1
+    }).lean();
+    
+    if (!gameData) {
+      return res.status(404).json({
+        success: false,
+        error: 'Player not found'
+      });
+    }
+    
+    console.log(`🎮 Retrieved data for player: ${username}`);
+    res.json({
+      success: true,
+      gameData: gameData
+    });
+  } catch (error) {
+    console.error('❌ Get player error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
+});
+
+// ==================== УДАЛЕНИЕ: ТОЛЬКО СОХРАНЕНИЕ ИГРЫ ====================
+app.delete('/delete-save/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    
+    // Проверяем наличие username
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username required'
+      });
+    }
+    
+    // Удаляем сохранение игры
+    const deletedSave = await Save.findOneAndDelete({ username });
+    
+    if (!deletedSave) {
+      return res.status(404).json({
+        success: false,
+        error: 'Save data not found'
+      });
+    }
+    
+    console.log(`🗑️ Save deleted for user: ${username}`);
+    
+    res.json({
+      success: true,
+      message: `Save data for ${username} has been deleted. Account still exists.`
+    });
+  } catch (error) {
+    console.error('❌ Delete save error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error during delete'
+    });
+  }
+});
+
+// ==================== УДАЛЕНИЕ: ПОЛНОСТЬЮ АККАУНТ (БЕЗ ПРОВЕРКИ) ====================
+app.delete('/delete-account/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username required'
+      });
+    }
+    
+    // Удаляем пользователя
+    const deletedUser = await User.findOneAndDelete({ username });
+    
+    // Удаляем сохранение
+    const deletedSave = await Save.findOneAndDelete({ username });
+    
+    if (!deletedUser && !deletedSave) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    console.log(`💥 Account completely deleted: ${username}`);
+    
+    res.json({
+      success: true,
+      message: `Account ${username} and all associated data have been permanently deleted`
+    });
+  } catch (error) {
+    console.error('❌ Delete account error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error during account deletion'
+    });
+  }
+});
+
+// ==================== УДАЛЕНИЕ: АККАУНТ С ПРОВЕРКОЙ ПАРОЛЯ (БЕЗОПАСНО) ====================
+app.delete('/delete-account-secure', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    // Проверка полей
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username and password required'
+      });
+    }
+    
+    // Находим пользователя
+    const user = await User.findOne({ username });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    // Проверяем пароль
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    
+    if (!isValid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid password - account not deleted'
+      });
+    }
+    
+    // Удаляем пользователя и сохранение
+    await User.findOneAndDelete({ username });
+    await Save.findOneAndDelete({ username });
+    
+    console.log(`🔐 Account securely deleted: ${username}`);
+    
+    res.json({
+      success: true,
+      message: `Account ${username} has been permanently deleted with password verification`
+    });
+  } catch (error) {
+    console.error('❌ Secure delete error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
+});
+
+// ==================== СБРОС ПРОГРЕССА (АККАУНТ ОСТАЁТСЯ) ====================
+app.post('/reset-progress/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    
+    if (!username) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username required'
+      });
+    }
+    
+    // Проверяем что пользователь существует
+    const user = await User.findOne({ username });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    // Сбрасываем прогресс
+    const resetSave = await Save.findOneAndUpdate(
+      { username },
+      {
+        total_score: 0,
+        current_skin: 0,
+        players_skins: [0],
+        updated_at: new Date()
+      },
+      { upsert: true, new: true }
+    );
+    
+    console.log(`🔄 Progress reset for user: ${username}`);
+    
+    res.json({
+      success: true,
+      message: 'Progress has been reset',
+      gameData: resetSave
+    });
+  } catch (error) {
+    console.error('❌ Reset progress error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
     });
   }
 });
@@ -352,6 +612,27 @@ app.listen(PORT, '0.0.0.0', () => {
 ║   🎮 Game Server ЗАПУЩЕН!             ║
 ║   Port: ${PORT}                            
 ║   MongoDB: ${process.env.MONGO_URL ? '✅ Connected' : '❌ Not set'}
+║                                        ║
+║   📍 Основные эндпоинты:              ║
+║   POST   /register                    ║
+║   POST   /login                       ║
+║   POST   /save                        ║
+║   GET    /load/:username              ║
+║                                        ║
+║   📊 Получение данных:                ║
+║   GET    /api/players        (все)    ║
+║   GET    /api/player/:username        ║
+║                                        ║
+║   🗑️  Удаление:                       ║
+║   DELETE /delete-save/:username       ║
+║   DELETE /delete-account/:username    ║
+║   DELETE /delete-account-secure       ║
+║                                        ║
+║   🔄 Другое:                          ║
+║   POST   /reset-progress/:username    ║
+║   POST   /change-password             ║
+║   POST   /admin/reset-password        ║
+║                                        ║
 ╚════════════════════════════════════════╝
   `);
 });
